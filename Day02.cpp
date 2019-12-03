@@ -8,15 +8,16 @@ void RunProgram(std::vector<int>& program)
 	int pc = 0;
 	while (program[pc] != 99)
 	{
-		if (program[pc] == 1)
+		switch (program[pc])
 		{
+		case 1:
 			program[program[pc + 3]] = program[program[pc + 1]] + program[program[pc + 2]];
 			pc += 4;
-		}
-		else if (program[pc] == 2)
-		{
+			break;
+		case 2:
 			program[program[pc + 3]] = program[program[pc + 1]] * program[program[pc + 2]];
 			pc += 4;
+			break;
 		}
 	}
 }
@@ -52,10 +53,11 @@ int main(int argc, char* argv[])
 	program[1] = 12;
 	program[2] = 2;
 	RunProgram(program);
-	std::cout << program[0] << std::endl;
+	std::cout << "Part 1: " << program[0] << std::endl;
 
-	// Part 2
-	int noun = 1, verb = 1;
+	// Part 2, performing binary search through the possible noun values and computing verb according to best result
+	int low = 0, high = program.size(), verb = 0, highestResultBelowTarget = 0, bestNoun = 0;
+	int noun = high / 2;
 	constexpr int target = 19690720;
 	while (true)
 	{
@@ -63,19 +65,33 @@ int main(int argc, char* argv[])
 		program[1] = noun;
 		program[2] = verb;
 		RunProgram(program);
-
+		
 		if (program[0] == target)
-			break;
+			break; // In case verb is 0
 		
 		if (program[0] < target)
-			++noun;
-		else
 		{
-			++verb;
-			noun = 1;
+			low = noun;
+			if (highestResultBelowTarget < program[0])
+			{
+				highestResultBelowTarget = program[0];
+				bestNoun = noun;
+			}
 		}
+		else
+			high = noun;
+
+		int next = (high + low) / 2;
+		if (next == noun)
+		{  // We have found the best noun, verb is simply the difference to the target.
+			noun = bestNoun;
+			verb = target - highestResultBelowTarget;
+			break;
+		}
+		else
+			noun = next;
 	}
-	std::cout << std::endl << 100 * noun + verb << " " << noun << " " << verb << std::endl;
+	std::cout << "Part 2: " << 100 * noun + verb << std::endl;
 
 	return 0;
 }
