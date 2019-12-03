@@ -71,7 +71,7 @@ int main(int argc, char* argv[])
 		
 		if (program[0] < target)
 		{
-			low = noun;
+			low = noun+1;
 			if (highestResultBelowTarget < program[0])
 			{
 				highestResultBelowTarget = program[0];
@@ -79,17 +79,16 @@ int main(int argc, char* argv[])
 			}
 		}
 		else
-			high = noun;
+			high = noun-1;
 
-		int next = (high + low) / 2;
-		if (next == noun)
+		if (high < low)
 		{  // We have found the best noun, verb is simply the difference to the target.
 			noun = bestNoun;
 			verb = target - highestResultBelowTarget;
 			break;
 		}
 		else
-			noun = next;
+			noun = (high + low) / 2;
 	}
 	std::cout << "Part 2: " << 100 * noun + verb << std::endl;
 
