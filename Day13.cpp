@@ -129,7 +129,7 @@ void PrintScreen(Screen& s, const Bounds64& b)
 {
 	for (i64 i = b.minY; i <= b.maxY; ++i)
 	{
-		for (i64 j = b.minY; j <= b.maxY; ++j)
+		for (i64 j = b.minX; j <= b.maxX; ++j)
 			std::cout << s[P64(j, i)];
 		std::cout << std::endl;
 	}
