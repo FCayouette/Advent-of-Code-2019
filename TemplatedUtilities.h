@@ -29,7 +29,7 @@ template<typename T>
 struct Coord
 {
 	constexpr Coord(T X = 0, T Y = 0) : x(X), y(Y) {}
-	constexpr bool operator <  (const Coord& p) const { return x < p.x || (x == p.x && y < p.y); }
+	constexpr bool operator <  (const Coord& p) const { if (x < p.x) return true; else if (p.x < x) return false; else return y < p.y; }
 	constexpr Coord operator + (const Coord& p) const { return Coord(x + p.x, y + p.y); }
 	constexpr Coord& operator+=(const Coord& p) { x += p.x; y += p.y; return *this; }
 	constexpr bool operator==(const Coord& p) const { return x == p.x && y == p.y; }
