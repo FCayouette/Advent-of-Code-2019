@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <set>
 #include <algorithm>
 
 using i64 = long long;
@@ -40,44 +41,44 @@ struct Reaction
         output = Reagent(s.substr(index + 3));
     }
 
-    std::vector<Reagent> inputs;
-    Reagent output;
-    bool Uses(const std::string& s) const
+    bool Uses(const std::string& reagentName) const
     {
-        return std::find_if(inputs.cbegin(), inputs.cend(), [s](const Reagent& r) { return r.name == s; }) != inputs.cend();
+        return std::find_if(inputs.cbegin(), inputs.cend(), [reagentName](const Reagent& r) { return r.name == reagentName; }) != inputs.cend();
     }
     bool operator<(const Reaction& r) const { return output.name < r.output.name; }
+
+    std::vector<Reagent> inputs;
+    Reagent output;
  };
 
 using Stock = std::map<std::string, i64>;
-using ReactionMap = std::map<std::string, Reaction>; // First the name of the output
+using ReactionMap = std::set<Reaction>; // First the name of the output
 
 void PerformReaction(ReactionMap& reactions, Stock& requiredStocks)
 {
+    Reaction desiredReaction; // Used to search reactions
     while (!reactions.empty())
-    {
-        for (auto iter = requiredStocks.begin(); iter != requiredStocks.end(); ++iter)
+        for (auto stockIter = requiredStocks.begin(); stockIter != requiredStocks.end(); ++stockIter)
         {
-            const std::string& s = iter->first;
-            auto r = reactions.cbegin();
-            for (; r != reactions.cend(); ++r)
-                if (r->second.Uses(s))
+            const std::string& name = stockIter->first;
+            auto reactionIter = reactions.cbegin();
+            for (; reactionIter != reactions.cend(); ++reactionIter)
+                if (reactionIter->Uses(name))
                     break;
-            if (r == reactions.cend()) // Nobody else uses this reagent, therefore we know we have the correct required amount
+            if (reactionIter == reactions.cend()) // Nothing else uses this reagent, therefore we know we have the correct required amount
             {
-                // Determine the amount of time the reaction has to be executed
-                const Reaction& currentReaction = reactions[s];
-                i64 times = (iter->second + currentReaction.output.amount - 1) / currentReaction.output.amount;
+                desiredReaction.output.name = name;
+                ReactionMap::iterator currentReaction = reactions.find(desiredReaction);
+                i64 times = (stockIter->second + currentReaction->output.amount - 1) / currentReaction->output.amount;
                 // Add each inputs to requiredStocks
-                for (const Reagent& reagent : currentReaction.inputs)
+                for (const Reagent& reagent : currentReaction->inputs)
                     requiredStocks[reagent.name] += times * reagent.amount;
 
-                reactions.erase(s);
-                requiredStocks.erase(s);
+                reactions.erase(currentReaction);
+                requiredStocks.erase(name);
                 break;
             }
         }
-    }
 }
 
 int main(int argc, char* argv[])
@@ -96,11 +97,7 @@ int main(int argc, char* argv[])
     std::string input;
 
     while (std::getline(in, input))
-    {
-        // Parse reaction
-        Reaction r(input);
-        reactions[r.output.name] = input;
-    }
+        reactions.emplace(input);
     in.close();
 
     backup = reactions;
@@ -122,8 +119,7 @@ int main(int argc, char* argv[])
         requiredStocks["FUEL"] = current;
         PerformReaction(reactions, requiredStocks);
 
-        i64 oreLeft = trillion - requiredStocks["ORE"];
-        if (oreLeft > 0)
+        if (trillion - requiredStocks["ORE"] > 0)
             low = current + 1;
         else
             high = current - 1;
