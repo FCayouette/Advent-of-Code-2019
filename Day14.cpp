@@ -52,10 +52,32 @@ struct Reaction
  };
 
 using Stock = std::map<std::string, i64>;
-using ReactionMap = std::set<Reaction>; // First the name of the output
+using ReactionMap = std::set<Reaction>;
 
-void PerformReaction(ReactionMap& reactions, Stock& requiredStocks)
+int main(int argc, char* argv[])
 {
+    if (argc < 2)
+    {
+        std::cout << "Usage: Day14.exe [filename]" << std::endl;
+        return -1;
+    }
+
+    std::ifstream in(argv[1], std::ios::in);
+    if (!in)
+        return -1;
+
+    ReactionMap reactions;
+    std::string input;
+
+    while (std::getline(in, input))
+        reactions.emplace(input);
+    in.close();
+
+    Stock requiredStocks;
+    std::vector<Reaction> reactionChain;
+    
+    // Perform first part
+    requiredStocks["FUEL"] = 1;    
     Reaction desiredReaction; // Used to search reactions
     while (!reactions.empty())
         for (auto stockIter = requiredStocks.begin(); stockIter != requiredStocks.end(); ++stockIter)
@@ -74,52 +96,31 @@ void PerformReaction(ReactionMap& reactions, Stock& requiredStocks)
                 for (const Reagent& reagent : currentReaction->inputs)
                     requiredStocks[reagent.name] += times * reagent.amount;
 
+                reactionChain.push_back(*currentReaction); // Build the reaction chain for part 2
                 reactions.erase(currentReaction);
                 requiredStocks.erase(name);
                 break;
             }
         }
-}
-
-int main(int argc, char* argv[])
-{
-    if (argc < 2)
-    {
-        std::cout << "Usage: Day14.exe [filename]" << std::endl;
-        return -1;
-    }
-
-    std::ifstream in(argv[1], std::ios::in);
-    if (!in)
-        return -1;
-
-    ReactionMap reactions, backup;
-    std::string input;
-
-    while (std::getline(in, input))
-        reactions.emplace(input);
-    in.close();
-
-    backup = reactions;
-    std::map<std::string, i64> requiredStocks;
-    
-    // Perform first part
-    requiredStocks["FUEL"] = 1;    
-    PerformReaction(reactions, requiredStocks);
     std::cout << "ORE required: " << requiredStocks["ORE"] << std::endl;
 
     // Part 2: Perform binary search on the amount of fuel
-    i64 low = trillion / (i64)requiredStocks["ORE"];
+    i64 low = trillion / requiredStocks["ORE"];
     i64 high = low * 10;
     i64 current = (low + high) / 2;
     do
     {
-        reactions = backup;
-        requiredStocks.clear();
+        for (auto& stock : requiredStocks)
+            stock.second = 0;
         requiredStocks["FUEL"] = current;
-        PerformReaction(reactions, requiredStocks);
+        for (const Reaction& reaction : reactionChain)
+        {
+            i64 times = (requiredStocks[reaction.output.name] + reaction.output.amount - 1) / reaction.output.amount;
+            for (const Reagent& reagent : reaction.inputs)
+                requiredStocks[reagent.name] += times * reagent.amount;
+        }
 
-        if (trillion - requiredStocks["ORE"] > 0)
+        if (requiredStocks["ORE"] <= trillion)
             low = current + 1;
         else
             high = current - 1;
