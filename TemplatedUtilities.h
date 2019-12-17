@@ -25,6 +25,12 @@ constexpr void GrowToEncompass(T& min, T& max, T val)
 	max = std::max(max, val);
 }
 
+template <typename T>
+constexpr bool Within(T min, T val, T max)
+{
+	return min <= val && val <= max;
+}
+
 template<typename T>
 struct Coord
 {
@@ -71,6 +77,7 @@ struct Boundaries
 	}
 	constexpr const Boundaries& operator+=(const Coord<T>& p) { GrowToEncompass(minX, maxX, p.x); GrowToEncompass(minY, maxY, p.y); return *this; }
 	constexpr void Translate(const Coord<T>& p) { minX += p.x; maxX += p.x; minY += p.y; maxY += p.y; }
+	constexpr bool Inside(const Coord<T>& p) const { return Within(minX, p.x, maxX) && Within(minY, p.y, maxY); }
 	T minX, minY, maxX, maxY;
 };
 
