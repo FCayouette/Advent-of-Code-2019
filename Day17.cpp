@@ -3,6 +3,7 @@
 #include <string>
 #include "TemplatedUtilities.h"
 #include <map>
+#include <algorithm>
 
 using i64 = long long;
 using IntCode = std::map<i64, i64>;
@@ -140,9 +141,64 @@ private:
 	RunMode mode;
 };
 
-bool IsScaffold(std::map<Point, char>& screen, const Bounds& bounds, const Point& p)
+int ReplaceSubstr(std::string& target, const std::string& pattern, const std::string& newPattern)
 {
-	return bounds.Inside(p) && screen[p] == '#';
+	int count = 0;
+	for (size_t index = 0; (index = target.find(pattern)) != std::string::npos;)
+	{
+		target.replace(target.cbegin() + index, target.cbegin() + index + pattern.size(), newPattern);
+		++count;
+	}
+	return count;
+}
+
+void CompressCommands(const std::string& original, std::string& commands, std::string& workA, std::string& workB, std::string& workC)
+{
+	size_t tokens = std::count(original.cbegin(), original.cend(), ',')/2;
+	for (size_t aTokens = 1; aTokens <= tokens; ++aTokens)
+	{
+		std::string workString = original;
+		size_t count = 0;
+		workA = workString.substr(0,
+			std::find_if(workString.cbegin(), workString.cend(), [aTokens, &count](char c) { return c == ',' && ++count == aTokens * 2;})
+			- workString.cbegin());
+		if (workA.size() > 19)
+			break; // Too big for program
+		int replacedTotal = ReplaceSubstr(workString, workA, "A");
+
+		// Compute how many tokens we have at the end before hitting a A
+		size_t lastA = workString.find_last_of('A');
+		std::string trailing = workString.substr(lastA + 2);
+		count = std::count(trailing.cbegin(), trailing.cend(), ',');
+		std::string reversedTrailing = trailing;
+		std::reverse(reversedTrailing.begin(), reversedTrailing.end());
+		for (size_t cTokens = 2; cTokens <= count; cTokens+=2)
+		{
+			std::string cWorkString = workString;
+			size_t reverseCount = 0;
+			size_t offset = std::find_if(reversedTrailing.cbegin(), reversedTrailing.cend(),
+				[cTokens, &reverseCount](char c) {return c == ',' && ++reverseCount == cTokens + 1;}) - reversedTrailing.cbegin();
+			workC = trailing.substr(trailing.size() - offset, offset-2);
+			if (workC.size() > 19 || workC.find('A') != std::string::npos)
+				break;
+			ReplaceSubstr(cWorkString, workC, "C");
+
+			// Get B token
+			size_t bStart = cWorkString.find_first_of("LR");
+			workB = cWorkString.substr(bStart);
+			workB.resize(workB.find_first_of("AC") - 1);
+			if (workB.size() > 19)
+				break;
+			ReplaceSubstr(cWorkString, workB, "B");
+			if (cWorkString.size() > 21 || cWorkString.find_first_of("LR") != std::string::npos)
+				continue; // Not a correct fit
+			commands = cWorkString;
+			workA += ',';
+			workB += ',';
+			workC += ',';
+			return;
+		}
+	}
 }
 
 std::vector<i64> CommandToInput(const std::string& s)
@@ -157,16 +213,16 @@ std::vector<i64> CommandToInput(const std::string& s)
 
 int main(int argc, char* argv[])
 {
-    if (argc < 2)
-    {
-        std::cout << "Usage: Day17.exe [filename]" << std::endl;
-        return -1;
-    }
+	if (argc < 2)
+	{
+		std::cout << "Usage: Day17.exe [filename]" << std::endl;
+		return -1;
+	}
 
-    std::ifstream in(argv[1], std::ios::in);
-    if (!in)
-        return -1;
-    
+	std::ifstream in(argv[1], std::ios::in);
+	if (!in)
+		return -1;
+
 	std::string data;
 	in >> data;
 	in.close();
@@ -175,7 +231,6 @@ int main(int argc, char* argv[])
 	bool completed = false;
 	std::map<Point, char> screen;
 	Point pixel(0, 0);
-	Bounds bounds;
 	Point botPos;
 	do {
 		completed = program.Run({});
@@ -191,79 +246,69 @@ int main(int argc, char* argv[])
 			default:
 			{
 				char c = static_cast<char>(output);
-				std::cout << c;
+				std::cout << c; // Printing the scaffolding for reference only
 				screen[pixel] = c;
-				bounds += pixel;
 
 				if (c == '^')
 					botPos = pixel;
 
 				pixel = Point(pixel.x + 1, pixel.y);
 			}
-				break;
+			break;
 			}
 		}
-		
+
 	} while (!completed);
 
 	int sum = 0;
-	for (int y = bounds.minY + 1; y < bounds.maxY; ++y)
-		for (int x = bounds.minX + 1; x < bounds.maxX; ++x)
-		{
-			Point pos = Point(x, y);
-			if (screen[pos] == '#')
-			{
-				int count = 0;
-				for (int i = 0; i < 4; ++i)
-				{
-					if (screen[pos + directions[i]] == '#')
-						++count;
-					else break;
-				}
-				if (count == 4)
-					sum += x * y;
-			}
-		}
 
+	for (const std::pair<Point, char>& pixel : screen)
+		if (pixel.second == '#')
+		{
+			int count = 0;
+			for (int i = 0; i < 4; ++i)
+			{
+				if (screen[pixel.first + directions[i]] == '#')
+					++count;
+				else break;
+			}
+			if (count == 4)
+				sum += pixel.first.x * pixel.first.y;
+		}
 	std::cout << "Part 1: " << sum << std::endl;
 
 	// First extract the full command line
 	std::string fullCommand;
 	int botDirection = 3;
-	
-	bool canTurn = true;
-	while (canTurn)
+
+	while(true)
 	{
-		if (IsScaffold(screen, bounds, botPos + directions[(botDirection + 1) % 4]))
+		if (screen[botPos + directions[(botDirection + 1) % 4]] == '#')
 		{
 			fullCommand += "R,";
 			botDirection = (botDirection + 1) % 4;
 		}
-		else if (IsScaffold(screen, bounds, botPos + directions[(botDirection + 3) % 4]))
+		else if (screen[botPos + directions[(botDirection + 3) % 4]] == '#')
 		{
 			fullCommand += "L,";
 			botDirection = (botDirection + 3) % 4;
 		}
-		else canTurn = false;
-		if (canTurn)
+		else break; // We are at the end of the path
+		// Find the extent of the move
+		int count = 0;
+		while (screen[botPos + directions[botDirection]] == '#')
 		{
-			// Find the extent of the move
-			int count = 0;
-			while (bounds.Inside(botPos + directions[botDirection]) && screen[botPos + directions[botDirection]] == '#')
-			{
-				botPos += directions[botDirection];
-				++count;
-			}
-			fullCommand += std::to_string(count);
-			fullCommand += ',';
+			botPos += directions[botDirection];
+			++count;
 		}
+		fullCommand += std::to_string(count);
+		fullCommand += ',';
 	}
 	fullCommand += (char)10;
-
-	// TODO: Actual method to extract pattern
-	std::string commands("A,C,A,B,C,A,C,B,B,C,");
-	std::string A("L,12,L,12,R,4,"), B("R,6,L,12,L,12,"), C("R,10,R,6,R,4,R,4,");
 	
+	std::string commands, A, B, C;
+	CompressCommands(fullCommand, commands, A, B, C);
+
 	backup[0] = 2;
 	program.Reset(backup, Program::RunMode::Silent);
 
@@ -272,8 +317,8 @@ int main(int argc, char* argv[])
 	program.Run(CommandToInput(B));
 	program.Run(CommandToInput(C));
 	program.Run({ (i64)'N', 10 });
-	
+
 	std::cout << program.GetOutput() << std::endl;
 
-    return 0;
+	return 0;
 }
