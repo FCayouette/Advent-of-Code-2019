@@ -3,7 +3,6 @@
 #include <string>
 #include "TemplatedUtilities.h"
 #include <map>
-#include <algorithm>
 
 using i64 = long long;
 using IntCode = std::map<i64, i64>;
@@ -11,46 +10,7 @@ using P64 = Coord<i64>;
 
 class Program
 {
-	i64 GetMode(i64 offset)
-	{
-		switch (offset)
-		{
-		case 1: return (program[pc] / 100) % 10;
-		case 2:	return (program[pc] / 1000) % 10;
-		case 3: return (program[pc] / 10000) % 10;
-		default: return -1;
-		}
-	}
-
-	i64 ParameterValue(i64 offset)
-	{
-		switch (GetMode(offset))
-		{
-		case 0:
-			return program[program[pc + offset]];
-		case 1:
-			return program[pc + offset];
-		case 2:
-			return program[program[pc + offset] + relative];
-		default:
-			return 0;
-		}
-	}
-
-	void WriteTo(i64 offset, i64 value)
-	{
-		switch (GetMode(offset))
-		{
-		case 0:
-			program[program[pc + offset]] = value;
-			return;
-		case 2:
-			program[program[pc + offset] + relative] = value;
-			return;
-		default: return;
-		}
-	}
-
+	
 public:
 	enum class RunMode
 	{
@@ -62,7 +22,6 @@ public:
 	Program(const IntCode& newProgram, RunMode m = RunMode::Verbose) { Reset(newProgram, m); }
 	Program(const std::string& s, RunMode m = RunMode::Verbose) : pc(0), output(0), relative(0), mode(m) { ConvertToIntCode(s, program); }
 	void Reset(const IntCode& newProgram, RunMode m = RunMode::Verbose) { pc = output = relative = 0; program = newProgram; mode = m; }
-	void Restart() { pc = output = relative = 0; }
 	bool Run(const std::vector<i64>& inputs)
 	{
 		int inputCount = 0;
@@ -136,63 +95,95 @@ public:
 		} while (result != std::string::npos);
 	}
 private:
+	// Utility methods
+	i64 GetMode(i64 offset)
+	{
+		switch (offset)
+		{
+		case 1: return (program[pc] / 100) % 10;
+		case 2:	return (program[pc] / 1000) % 10;
+		case 3: return (program[pc] / 10000) % 10;
+		default: return -1;
+		}
+	}
+
+	i64 ParameterValue(i64 offset)
+	{
+		switch (GetMode(offset))
+		{
+		case 0:
+			return program[program[pc + offset]];
+		case 1:
+			return program[pc + offset];
+		case 2:
+			return program[program[pc + offset] + relative];
+		default:
+			return 0;
+		}
+	}
+
+	void WriteTo(i64 offset, i64 value)
+	{
+		switch (GetMode(offset))
+		{
+		case 0:
+			program[program[pc + offset]] = value;
+			return;
+		case 2:
+			program[program[pc + offset] + relative] = value;
+			return;
+		default: return;
+		}
+	}
+
 	IntCode program;
 	i64 pc = 0, output = 0, relative = 0;
 	RunMode mode;
 };
 
-int ReplaceSubstr(std::string& target, const std::string& pattern, const std::string& newPattern)
+void  ReplaceSubstr(std::string& target, const std::string& pattern, const std::string& newPattern)
 {
-	int count = 0;
 	for (size_t index = 0; (index = target.find(pattern)) != std::string::npos;)
-	{
 		target.replace(target.cbegin() + index, target.cbegin() + index + pattern.size(), newPattern);
-		++count;
-	}
-	return count;
 }
 
 void CompressCommands(const std::string& original, std::string& commands, std::string& workA, std::string& workB, std::string& workC)
 {
-	size_t tokens = std::count(original.cbegin(), original.cend(), ',')/2;
+	size_t tokens = std::count(original.cbegin(), original.cend(), ',') / 2;
 	for (size_t aTokens = 1; aTokens <= tokens; ++aTokens)
 	{
 		std::string workString = original;
 		size_t count = 0;
-		workA = workString.substr(0,
-			std::find_if(workString.cbegin(), workString.cend(), [aTokens, &count](char c) { return c == ',' && ++count == aTokens * 2;})
-			- workString.cbegin());
+		workA = workString.substr(0, std::find_if(workString.cbegin(), workString.cend(), [tok = 2*aTokens, &count](char c) { return c == ',' && ++count == tok; }) - workString.cbegin());
 		if (workA.size() > 19)
-			break; // Too big for program
-		int replacedTotal = ReplaceSubstr(workString, workA, "A");
+			throw; // Too big for program
+		ReplaceSubstr(workString, workA, "A");
 
-		// Compute how many tokens we have at the end before hitting a A
-		size_t lastA = workString.find_last_of('A');
-		std::string trailing = workString.substr(lastA + 2);
-		count = std::count(trailing.cbegin(), trailing.cend(), ',');
-		std::string reversedTrailing = trailing;
-		std::reverse(reversedTrailing.begin(), reversedTrailing.end());
-		for (size_t cTokens = 2; cTokens <= count; cTokens+=2)
+		// Compute a tentative B given A
+		size_t startB = workString.find_first_of("LR");
+		size_t endB = workString.find_first_of('A', startB);
+		std::string potentialB = workString.substr(startB, endB == std::string::npos ? std::string::npos : endB - startB - 1);
+		count = std::count(potentialB.cbegin(), potentialB.cend(), ',')+1;
+		for (size_t bTokens = 2; bTokens <= count; bTokens += 2)
 		{
-			std::string cWorkString = workString;
-			size_t reverseCount = 0;
-			size_t offset = std::find_if(reversedTrailing.cbegin(), reversedTrailing.cend(),
-				[cTokens, &reverseCount](char c) {return c == ',' && ++reverseCount == cTokens + 1;}) - reversedTrailing.cbegin();
-			workC = trailing.substr(trailing.size() - offset, offset-2);
-			if (workC.size() > 19 || workC.find('A') != std::string::npos)
-				break;
-			ReplaceSubstr(cWorkString, workC, "C");
-
-			// Get B token
-			size_t bStart = cWorkString.find_first_of("LR");
-			workB = cWorkString.substr(bStart);
-			workB.resize(workB.find_first_of("AC") - 1);
+			size_t bCount = 0;
+			workB = potentialB.substr(0, std::find_if(potentialB.cbegin(), potentialB.cend(), [bTokens, &bCount](char c) { return c == ',' && ++bCount == bTokens; }) - potentialB.cbegin());
 			if (workB.size() > 19)
-				break;
-			ReplaceSubstr(cWorkString, workB, "B");
-			if (cWorkString.size() > 21 || cWorkString.find_first_of("LR") != std::string::npos)
-				continue; // Not a correct fit
-			commands = cWorkString;
+				break; // A is too short, skip to next potential A token
+			std::string bWorkString = workString;
+			ReplaceSubstr(bWorkString, workB, "B");
+
+			// Get C token given A and B
+			workC = bWorkString.substr(bWorkString.find_first_of("LR"));
+			size_t endC = workC.find_first_of("AB");
+			workC.resize(endC == std::string::npos ? workC.size() - 2 : endC - 1);
+			if (workC.size() > 19)
+				continue;
+			ReplaceSubstr(bWorkString, workC, "C");
+			if (bWorkString.size() > 21 || bWorkString.find_first_of("LR") != std::string::npos)
+				continue;
+			// Found a matching pattern
+			commands = bWorkString;
 			workA += ',';
 			workB += ',';
 			workC += ',';
@@ -226,12 +217,12 @@ int main(int argc, char* argv[])
 	std::string data;
 	in >> data;
 	in.close();
-	Program program(data, Program::RunMode::BreakOnOutput);
-	IntCode backup = program.GetIntCode();
+	IntCode backup;
+	Program::ConvertToIntCode(data, backup);
+	Program program(backup, Program::RunMode::BreakOnOutput);
 	bool completed = false;
 	std::map<Point, char> screen;
-	Point pixel(0, 0);
-	Point botPos;
+	Point pixel(0, 0), botPos;
 	do {
 		completed = program.Run({});
 		if (!completed)
@@ -239,14 +230,12 @@ int main(int argc, char* argv[])
 			i64 output = program.GetOutput();
 			switch (output)
 			{
-			case 10:
+			case 10: // New line
 				pixel = Point(0, pixel.y + 1);
-				std::cout << std::endl;
 				break;
 			default:
 			{
 				char c = static_cast<char>(output);
-				std::cout << c; // Printing the scaffolding for reference only
 				screen[pixel] = c;
 
 				if (c == '^')
@@ -281,7 +270,7 @@ int main(int argc, char* argv[])
 	std::string fullCommand;
 	int botDirection = 3;
 
-	while(true)
+	while (true)
 	{
 		if (screen[botPos + directions[(botDirection + 1) % 4]] == '#')
 		{
@@ -304,8 +293,7 @@ int main(int argc, char* argv[])
 		fullCommand += std::to_string(count);
 		fullCommand += ',';
 	}
-	fullCommand += (char)10;
-	
+
 	std::string commands, A, B, C;
 	CompressCommands(fullCommand, commands, A, B, C);
 
