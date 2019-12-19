@@ -39,6 +39,7 @@ struct Coord
 	constexpr Coord operator + (const Coord& p) const { return Coord(x + p.x, y + p.y); }
 	constexpr Coord& operator+=(const Coord& p) { x += p.x; y += p.y; return *this; }
 	constexpr bool operator==(const Coord& p) const { return x == p.x && y == p.y; }
+	constexpr bool operator!=(const Coord& p) const { return x != p.x || y != p.y; }
 	T x, y;
 };
 
