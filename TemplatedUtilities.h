@@ -44,6 +44,18 @@ struct Coord
 };
 
 template<typename T>
+struct Coord3D
+{
+	constexpr Coord3D(T X = 0, T Y = 0, T Z = 0) : x(X), y(Y), z(Z) {}
+	constexpr bool operator <  (const Coord3D& p) const { if (x < p.x) return true; if (p.x < x) return false; if (y < p.y) return true; if (p.y < y) return false; return z < p.z; }
+	constexpr Coord3D operator + (const Coord3D& p) const { return Coord3D(x + p.x, y + p.y, z + p.z); }
+	constexpr Coord3D& operator+=(const Coord3D& p) { x += p.x; y += p.y; z += p.z; return *this; }
+	constexpr bool operator==(const Coord3D& p) const { return x == p.x && y == p.y && z == p.z; }
+	constexpr bool operator!=(const Coord3D& p) const { return x != p.x || y != p.y || z != p.z; }
+	T x, y, z;
+};
+
+template<typename T>
 T ManhattanDistance(const Coord<T>& c1, const Coord<T>& c2)
 {
 	if constexpr (std::is_signed_v<T>)
@@ -54,9 +66,11 @@ T ManhattanDistance(const Coord<T>& c1, const Coord<T>& c2)
 }
 
 using Point = Coord<int>;
+using Point3D = Coord3D<int>;
 
 constexpr char coords[] = { 'N', 'E', 'S', 'W' };
 constexpr Point directions[] = { Point(1, 0), Point(0, 1), Point(-1, 0), Point(0,-1) };
+constexpr Point3D flatDirections[] = { Point3D(1, 0, 0), Point3D(0, 1, 0), Point3D(-1, 0, 0), Point3D(0, -1, 0) };
 
 template<typename T>
 constexpr Coord<T> ReverseDirection(const Coord<T>& p)
