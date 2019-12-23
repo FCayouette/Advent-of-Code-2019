@@ -4,7 +4,11 @@
 #include <type_traits>
 #include <vector>
 #include <set>
+#include <array>
 
+//////////////////////////////////////////////////////////////////
+// Utility methods
+//////////////////////////////////////////////////////////////////
 template <typename InputIterator1, typename InputIterator2>
 bool set_intersects(InputIterator1 first1, InputIterator1 last1,
 					InputIterator2 first2, InputIterator2 last2)
@@ -31,6 +35,9 @@ constexpr bool Within(T min, T val, T max)
 	return min <= val && val <= max;
 }
 
+///////////////////////////////////////////////////////////////////
+// Coordinate systems
+///////////////////////////////////////////////////////////////////
 template<typename T>
 struct Coord
 {
@@ -38,6 +45,8 @@ struct Coord
 	constexpr bool operator <  (const Coord& p) const { if (x < p.x) return true; else if (p.x < x) return false; else return y < p.y; }
 	constexpr Coord operator + (const Coord& p) const { return Coord(x + p.x, y + p.y); }
 	constexpr Coord& operator+=(const Coord& p) { x += p.x; y += p.y; return *this; }
+	constexpr Coord operator - (const Coord& p) const { return Coord(x - p.x, y - p.y); }
+	constexpr Coord& operator-=(const Coord& p) { x -= p.x; y -= p.y; }
 	constexpr bool operator==(const Coord& p) const { return x == p.x && y == p.y; }
 	constexpr bool operator!=(const Coord& p) const { return x != p.x || y != p.y; }
 	T x, y;
@@ -50,6 +59,8 @@ struct Coord3D
 	constexpr bool operator <  (const Coord3D& p) const { if (x < p.x) return true; if (p.x < x) return false; if (y < p.y) return true; if (p.y < y) return false; return z < p.z; }
 	constexpr Coord3D operator + (const Coord3D& p) const { return Coord3D(x + p.x, y + p.y, z + p.z); }
 	constexpr Coord3D& operator+=(const Coord3D& p) { x += p.x; y += p.y; z += p.z; return *this; }
+	constexpr Coord3D operator - (const Coord3D& p) { return Coord3D(x - p.x, y - p.y, z - p.z); };
+	constexpr Coord3D& operator-=(const Coord3D& p) { x -= p.x; y -= p.y; z -= p.z; return *this; };
 	constexpr bool operator==(const Coord3D& p) const { return x == p.x && y == p.y && z == p.z; }
 	constexpr bool operator!=(const Coord3D& p) const { return x != p.x || y != p.y || z != p.z; }
 	T x, y, z;
@@ -98,6 +109,103 @@ struct Boundaries
 
 using Bounds = Boundaries<int>;
 
+/////////////////////////////////////////////////////////////////
+// Modulo mathematics
+/////////////////////////////////////////////////////////////////
+// From https://www.geeksforgeeks.org/multiply-large-integers-under-large-modulo/
+template <typename T>
+constexpr T ModuloMul(T a, T b, T mod)
+{
+	T result = 0;
+	a %= mod;
+	while (b)
+	{
+		if (b & 1)
+			result = (result + a) % mod;
+		a = (2 * a) % mod;
+		b /= 2;
+	}
+	return result;
+}
+
+// From https://stackoverflow.com/questions/8496182/calculating-powa-b-mod-n
+// Primality testing approach
+// Modified to avoid multiplication overflow
+template <typename T>
+constexpr T ModuloExp(T base, T exp, T mod)
+{
+	T result = 1;
+	while (exp)
+	{
+		if (exp & 1)
+			result = ModuloMul(result, base, mod);
+		base = ModuloMul(base, base, mod);
+		exp /= 2;
+	}
+	return result % mod;
+}
+
+// From https://www.rookieslab.com/posts/how-to-find-multiplicative-inverse-of-a-number-modulo-m-in-python-cpp
+template <typename T>
+constexpr T ModuloInvMul(T A, T M) {
+	// Assumes that M is a prime number
+	// Returns multiplicative modulo inverse of A under M
+	return ModuloExp(A, M - 2, M);
+}
+
+template<typename T>
+constexpr std::array<T, 3> ExtendedEuclidGCD(T a, T b) {
+	// Returns a vector `result` of size 3 where:
+	// Referring to the equation ax + by = gcd(a, b)
+	//     result[0] is gcd(a, b)
+	//     result[1] is x
+	//     result[2] is y 
+
+	T s = 0, old_s = 1;
+	T t = 1, old_t = 0;
+	T r = b, old_r = a;
+
+	while (r != 0) {
+		T quotient = old_r / r;
+		// We are overriding the value of r, before that we store it's current
+		// value in temp variable, later we assign it to old_r
+		T temp = r;
+		r = old_r - quotient * r;
+		old_r = temp;
+
+		// We treat s and t in the same manner we treated r
+		temp = s;
+		s = old_s - quotient * s;
+		old_s = temp;
+
+		temp = t;
+		t = old_t - quotient * t;
+		old_t = temp;
+	}
+	std::array<T, 3> result{ old_r, old_s, old_t };
+	return result;
+}
+
+template <typename T>
+constexpr T ModuloInvMul_NonPrime(T A, T M) {
+	// Assumes that A and M are co-prime
+	// Returns multiplicative modulo inverse of A under M
+
+	// Find gcd using Extended Euclid's Algorithm
+	std::array<T, 3> v = ExtendedEuclidGCD(A, M);
+	//i64 gcd = v[0];
+	//i64 x = v[1];
+	//i64 y = v[2]; // We don't really need this though
+
+	// In case x is negative, we handle it by adding extra M
+	// Because we know that multiplicative inverse of A in range M lies
+	// in the range [0, M-1]
+	return v[1] < 0 ? v[1] + M : v[1];
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Heap utilities
+///////////////////////////////////////////////////////////////////////////////
 template <typename T>
 void PushHeap(T& container, const typename T::value_type& val)
 {
@@ -136,6 +244,10 @@ void EmplaceHeap(T& container, const Predicate& pred, args&&... a)
 	container.emplace_back(a...);
 	std::push_heap(container.begin(), container.end(), pred);
 }
+
+///////////////////////////////////////////////////////////////////////////////
+// A* base implementation
+///////////////////////////////////////////////////////////////////////////////
 
 // This AStarInfo structure is meant to be used with a std::heap
 // NodeInfo is the data about the node in the A* search, must have operator <

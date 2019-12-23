@@ -4,45 +4,9 @@
 #include <array>
 #include <algorithm>
 #include <vector>
+#include "TemplatedUtilities.h"
+
 using i64 = long long;
-
-// From https://www.geeksforgeeks.org/multiply-large-integers-under-large-modulo/
-constexpr i64 ModuloMul(i64 a, i64 b, i64 mod)
-{
-    i64 result = 0;
-    a %= mod;
-    while (b)
-    {
-        if (b & 1)
-            result = (result + a) % mod;
-        a = (2 * a) % mod; // assumes this doesn't overflow
-        b /= 2;
-    }
-    return result;
-}
-
-// From https://stackoverflow.com/questions/8496182/calculating-powa-b-mod-n
-// Primality testing approach
-// Modified to avoid multiplication overflow
-constexpr i64 ModuloExp(i64 base, i64 exp, i64 mod)
-{
-    i64 result = 1;
-    while (exp)
-    {
-        if (exp & 1)
-            result = ModuloMul(result, base, mod);
-        base = ModuloMul(base, base, mod);
-        exp /= 2;
-    }
-    return result;
-}
-
-// From https://www.rookieslab.com/posts/how-to-find-multiplicative-inverse-of-a-number-modulo-m-in-python-cpp
-constexpr i64 ModuloInvMul(i64 A, i64 M) {
-    // Assumes that M is a prime number
-    // Returns multiplicative modulo inverse of A under M
-    return ModuloExp(A, M - 2, M);
-}
 
 int main(int argc, char* argv[])
 {
@@ -93,7 +57,7 @@ int main(int argc, char* argv[])
     constexpr i64 shuffles = 101741582076661;
 
     i64 a = 1, b = 0;
-    // Compute reverse effect of a single shuffle as a  A*{index} + B effect
+    // Compute reverse effect of a single shuffle as a  A*x + B effect
     for (auto iter = commands.crbegin(); iter != commands.crend(); ++iter)
     {
         if ((*iter)[0] == 'c')
@@ -119,13 +83,19 @@ int main(int argc, char* argv[])
     a %= largeDeckSize;
     b %= largeDeckSize;
     // Apply the reverse effect {shuffles} times through modular exponentiation
-    i64 t1 = ModuloExp(a, shuffles, largeDeckSize);
-    i64 t2 = ModuloMul(t1, 2020, largeDeckSize); // 2020 is the target index
-    i64 t3 = (t1 + largeDeckSize - 1) % largeDeckSize;
-    i64 t4 = ModuloMul(b, t3, largeDeckSize);
-    i64 t5 = ModuloInvMul(a - 1, largeDeckSize);
+    // One iteration as effect x*A + b
+    // 2 iterations are of effect x*A^2 +A*b + b;
+    // N iterations give the form x*A^N + b*A^N-1 + b*A^N-2 + ... + b*A + b
+    // which can be reduced to x*A^N + b*SumOf(A^i) with i from 0 to N-1
+    // Which is equal to x*A^N + b * (1-A^N) / (1 - A)
+     
+    i64 aPowShuffles = ModuloExp(a, shuffles, largeDeckSize);
+    i64 frontTerm = ModuloMul<i64>(aPowShuffles, 2020, largeDeckSize); // 2020 is the target index
+    i64 aPowShufflesMinusOne = (aPowShuffles + largeDeckSize - 1) % largeDeckSize; 
+    i64 secondTerm = ModuloMul(b, aPowShufflesMinusOne, largeDeckSize); // 1-x and x-1 are congruent in modulo calculus
+    i64 secondTermDividend = ModuloInvMul(a - 1, largeDeckSize);
 
-    i64 result = (t2 + ModuloMul(t4, t5, largeDeckSize)) % largeDeckSize;
+    i64 result = (frontTerm + ModuloMul(secondTerm, secondTermDividend, largeDeckSize)) % largeDeckSize; // Combine second term and add first
     std::cout << "Part 2: " << result << std::endl;
 
     return 0;
