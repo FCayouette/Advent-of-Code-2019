@@ -6,17 +6,16 @@
 #include <map>
 #include <set>
 #include <array>
-#include <cassert>
 
 constexpr bool IsPortal(char c) { return c >= 'A' && c <= 'Z'; }
 
 struct Portal
 {
-    Portal() : name({ '.','.' }) {};
-    Portal(char c1, char c2) : name({ c1,c2 }) {}
+    Portal(char c1 = '.', char c2 = '.') : name({ c1,c2 }) {}
+    Portal(const std::array<char, 2>& a) : name(a) {}
     mutable Point A, B; // dirty trick to allow use in set (safe as they are not used in comparison)
     std::array<char, 2> name;
-    bool operator<(const Portal& p)const { return name < p.name; }
+    bool operator<(const Portal& p) const { return name < p.name; }
 };
 
 int main(int argc, char*argv[])
@@ -56,11 +55,9 @@ int main(int argc, char*argv[])
                     if (j + 2 < pMax.x && maze[i][j + 2] == '.')
                         pos = Point(j + 2, i);
                     else
-                    {
-                        assert(j > 0 && maze[i][j - 1] == '.');
                         pos = Point(j - 1, i);
-                    }
-                    pointsToPortal[pos] = { c, portal.name[1] };
+
+                    pointsToPortal[pos] = portal.name;
                     if (auto iter = portals.find(portal);
                         iter == portals.cend())
                     {
@@ -78,11 +75,9 @@ int main(int argc, char*argv[])
                     if (i + 2 < pMax.y && maze[i + 2][j] == '.')
                         pos = Point(j, i + 2);
                     else
-                    {
-                        assert(i > 0 && maze[i - 1][j] == '.');
                         pos = Point(j, i-1);
-                    }
-                    pointsToPortal[pos] = { c, portal.name[1] };
+                    
+                    pointsToPortal[pos] = portal.name;
                     if (auto iter = portals.find(portal);
                         iter == portals.cend())
                     {
@@ -98,67 +93,45 @@ int main(int argc, char*argv[])
     Point target = portals.crbegin()->A;
     Point start = portals.cbegin()->A;
     portals.cbegin()->B = portals.cbegin()->A;
-    std::set<Point> testedPoints;
-    testedPoints.insert(start);
-    std::set<Point> previousIter = testedPoints;
+    portals.crbegin()->B = portals.crbegin()->A;
     Bounds bounds;
     bounds += pMax + Point(-1, -1);
-    int iterations = 0;
-    bool found = false;
+
+    AStar<Point, int> aStar([target](const Point& p) { return ManhattanDistance(p, target); });
+    aStar.EstimatedEmplace(start, 0);
+
     do
     {
-        ++iterations;
-        std::set<Point> currentIteration;
-
-        for (const Point& p : previousIter)
+        AStar<Point, int>::ASI currentInfo = aStar.PopFront();
+        const int nextCost = currentInfo.cost + 1;
+        for (int i = 0; i < 4; ++i)
         {
-            for (int i = 0; i < 4; ++i)
+            Point np = currentInfo.info + directions[i];
+            if (np == target)
             {
-                Point np = p + directions[i];
-                if (np == target)
-                {
-                    found = true;
-                    break;
-                }
-                if (bounds.Inside(np) && testedPoints.find(np) == testedPoints.cend() && maze[np.y][np.x] == '.')
-                {
-                    testedPoints.insert(np);
-                    currentIteration.insert(np);
-                }
+                std::cout << "Part 1: " << nextCost << std::endl;
+                goto AStarCompleted; // We are done, get out
             }
-            if (found)
-                break;
-            if (auto portal = pointsToPortal.find(p);
-                portal != pointsToPortal.cend())
-            {
-                auto iter = portals.find(Portal(portal->second[0], portal->second[1]));
-                assert(iter != portals.cend());
-                if (iter->A == p)
-                {
-                    if (testedPoints.find(iter->B) == testedPoints.cend())
-                    {
-                        testedPoints.insert(iter->B);
-                        currentIteration.insert(iter->B);
-                    }
-                }
-                else if (testedPoints.find(iter->A) == testedPoints.cend())
-                {
-                    testedPoints.insert(iter->A);
-                    currentIteration.insert(iter->A);
-                }
-            }
+            if (bounds.Inside(np) && !aStar.HasEvaluatedNode(np) && maze[np.y][np.x] == '.')
+                aStar.EstimatedEmplace(np, nextCost);
         }
-        if (found)
-            break;
-        std::swap(currentIteration, previousIter);
-    } while (!previousIter.empty());
+        if (auto portal = pointsToPortal.find(currentInfo.info);
+            portal != pointsToPortal.cend())
+        {
+            auto iter = portals.find(portal->second);
+            if (iter->A == currentInfo.info)
+            {
+                if (!aStar.HasEvaluatedNode(iter->B))
+                    aStar.EstimatedEmplace(iter->B, nextCost);
+            }
+            else if (!aStar.HasEvaluatedNode(iter->A))
+                aStar.EstimatedEmplace(iter->A, nextCost);
+        }
+    } while (!aStar.Empty());
+AStarCompleted:
 
-
-    std::cout << "Part 1: " << iterations << std::endl;
-
-    // Going 3D in the solution
+    // Going 3D for part 2 solution
     // Make sure Portals have A in the outside and B in the inside
-    
     for (auto iter = portals.cbegin(); iter != portals.cend(); ++iter)
     {
         Point b = iter->B;
@@ -166,70 +139,58 @@ int main(int argc, char*argv[])
             std::swap(iter->A, iter->B);
     }
 
+    // Compute minimal cost to change layer
+    int minCost = bounds.maxX - bounds.minX + bounds.maxY - bounds.minY;
+    for (auto iter = portals.cbegin(); iter != portals.cend(); ++iter)
+    {
+        int cost = ManhattanDistance(target, iter->B);
+        if (cost < minCost && cost != 0)
+            minCost = cost;
+    }
     Point3D target3d(target.x, target.y, 0);
     Point3D start3d(start.x, start.y, 0);
-    std::set<Point3D> tested3Dpoints;
-    tested3Dpoints.insert(start3d);
-    std::set<Point3D> previous3DIter = tested3Dpoints;
-    iterations = 0;
-    found = false;
+    constexpr std::array<char, 2> entrance{ 'A', 'A' }, exit{ 'Z','Z' };
+
+    AStar<Point3D, int> aStar3d([minCost, target](const Point3D& p) { return ManhattanDistance(target, Point(p.x, p.y)) + minCost * p.z; });
+    aStar3d.EstimatedEmplace(start3d, 0);
+
     do
     {
-        ++iterations;
-        std::set<Point3D> currentIteration;
-
-        for (const Point3D& p : previous3DIter)
+        AStar<Point3D, int>::ASI currentInfo = aStar3d.PopFront();
+        const int nextCost = currentInfo.cost + 1;
+        for (int i = 0; i < 4; ++i)
         {
-            for (int i = 0; i < 4; ++i)
+            Point3D np = currentInfo.info + flatDirections[i];
+            if (np == target3d)
             {
-                Point3D np = p + flatDirections[i];
-                if (np == target3d)
-                {
-                    found = true;
-                    break;
-                }
-                if (bounds.Inside(Point(np.x, np.y)) && tested3Dpoints.find(np) == tested3Dpoints.cend() && maze[np.y][np.x] == '.')
-                {
-                    tested3Dpoints.insert(np);
-                    currentIteration.insert(np);
-                }
+                std::cout << "Part 2: " << nextCost << std::endl;
+                goto AStar3DCompleted; // We are done, get out
             }
-            if (found)
-                break;
-            Point p2D(p.x, p.y);
-            if (auto portal = pointsToPortal.find(p2D);
-                portal != pointsToPortal.cend())
+            if (bounds.Inside(np.Flatten()) && !aStar3d.HasEvaluatedNode(np) && maze[np.y][np.x] == '.')
+                aStar3d.EstimatedEmplace(np, nextCost);            
+        }
+        if (auto portal = pointsToPortal.find(currentInfo.info.Flatten());
+            portal != pointsToPortal.cend())
+        {
+            if (currentInfo.info.z != 0 && (portal->second == entrance || portal->second == exit))
+                continue; // Not at the correct level for entrance and exit
+            auto iter = portals.find(portal->second);
+            if (iter->A == currentInfo.info.Flatten())
             {
-                if (p.z != 0 && ((portal->second[0] == 'A' && portal->second[1]=='A') || 
-                    (portal->second[0] == 'Z' && portal->second[1] == 'Z')))
-                    continue; // Not at the correct level for entrance and exit
-                auto iter = portals.find(Portal(portal->second[0], portal->second[1]));
-                assert(iter != portals.cend());
-                if (iter->A == p2D)
-                {
-                    if (p.z == 0) continue;
-                    Point3D inner(iter->B.x, iter->B.y, p.z - 1);
-                    if (tested3Dpoints.find(inner) == tested3Dpoints.cend())
-                    {
-                        tested3Dpoints.insert(inner);
-                        currentIteration.insert(inner);
-                    }
-                }
-                else
-                {
-                    Point3D outer(iter->A.x, iter->A.y, p.z + 1);
-                    if (tested3Dpoints.find(outer) == tested3Dpoints.cend())
-                    {
-                        tested3Dpoints.insert(outer);
-                        currentIteration.insert(outer);
-                    }
-                }
+                if (currentInfo.info.z == 0) continue;
+                Point3D inner(iter->B.x, iter->B.y, currentInfo.info.z - 1);
+                if (!aStar3d.HasEvaluatedNode(inner))
+                    aStar3d.EstimatedEmplace(inner, nextCost);
+            }
+            else
+            {
+                Point3D outer(iter->A.x, iter->A.y, currentInfo.info.z + 1);
+                if (!aStar3d.HasEvaluatedNode(outer))
+                    aStar3d.EstimatedEmplace(outer, nextCost);
             }
         }
-        if (found)
-            break;
-        std::swap(currentIteration, previous3DIter);
-    } while (!previousIter.empty());
+    } while (!aStar3d.Empty());
 
-    std::cout << "Part 2: " << iterations << std::endl;
+AStar3DCompleted:
+    return 0;
 }

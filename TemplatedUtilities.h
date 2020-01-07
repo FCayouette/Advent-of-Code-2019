@@ -5,13 +5,14 @@
 #include <vector>
 #include <set>
 #include <array>
+#include <functional>
 
 //////////////////////////////////////////////////////////////////
 // Utility methods
 //////////////////////////////////////////////////////////////////
 template <typename InputIterator1, typename InputIterator2>
 bool set_intersects(InputIterator1 first1, InputIterator1 last1,
-					InputIterator2 first2, InputIterator2 last2)
+	InputIterator2 first2, InputIterator2 last2)
 {
 	while (first1 != last1 && first2 != last2)
 	{
@@ -63,6 +64,7 @@ struct Coord3D
 	constexpr Coord3D& operator-=(const Coord3D& p) { x -= p.x; y -= p.y; z -= p.z; return *this; };
 	constexpr bool operator==(const Coord3D& p) const { return x == p.x && y == p.y && z == p.z; }
 	constexpr bool operator!=(const Coord3D& p) const { return x != p.x || y != p.y || z != p.z; }
+	constexpr Coord<T> Flatten() const { return Coord<T>(x, y); }
 	T x, y, z;
 };
 
@@ -73,7 +75,7 @@ T ManhattanDistance(const Coord<T>& c1, const Coord<T>& c2)
 		return std::abs(c1.x - c2.x) + std::abs(c1.y - c2.y);
 	else
 		return static_cast<T>(std::abs(static_cast<std::make_signed_t<T>>(c1.x) - static_cast<std::make_signed_t<T>>(c2.x)) +
-						      std::abs(static_cast<std::make_signed_t<T>>(c1.y) - static_cast<std::make_signed_t<T>>(c2.y)));
+			std::abs(static_cast<std::make_signed_t<T>>(c1.y) - static_cast<std::make_signed_t<T>>(c2.y)));
 }
 
 using Point = Coord<int>;
@@ -273,9 +275,10 @@ class AStar
 {
 public:
 	using ASI = AStarInfo<NodeInfo, Cost_t>;
-	
-	AStar() {}
-	AStar(std::vector<ASI>&& data) : heap(std::move(data)), predicate()
+	using Estimator = std::function<Cost_t(NodeInfo)>;
+
+	AStar(const Estimator& e) : estimator(e) {}
+	AStar(std::vector<ASI>&& data, const Estimator& e) : heap(std::move(data)), estimator(e), predicate()
 	{
 		std::make_heap(heap.begin(), heap.end(), predicate);
 		for (const ASI& asi : heap)
@@ -287,7 +290,8 @@ public:
 	inline void Push(const ASI& asi) { PushHeap(heap, asi, predicate); repeatGuard.insert(asi.info); }
 	template<typename... Args>
 	inline void Emplace(Args&& ... args) { heap.emplace_back(args...); repeatGuard.insert(heap.back().info); std::push_heap(heap.begin(), heap.end(), predicate); }
-	
+	inline void EstimatedEmplace(const NodeInfo& ni, Cost_t cost) { heap.emplace_back(ni, cost, cost + estimator(ni)); repeatGuard.insert(heap.back().info); std::push_heap(heap.begin(), heap.end(), predicate); }
+
 	inline bool HasEvaluatedNode(const NodeInfo& ni) const { return repeatGuard.find(ni) != repeatGuard.cend(); }
 	inline bool Empty() const { return heap.empty(); }
 	inline void Reset() { heap.clear(); repeatGuard.clear(); }
@@ -295,8 +299,7 @@ public:
 private:
 	std::vector<ASI> heap;
 	std::set<NodeInfo> repeatGuard;
+	Estimator estimator;
 	Pred predicate;
 };
-
-
 
