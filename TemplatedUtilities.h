@@ -82,13 +82,21 @@ using Point = Coord<int>;
 using Point3D = Coord3D<int>;
 
 constexpr char coords[] = { 'N', 'E', 'S', 'W' };
-constexpr Point directions[] = { Point(1, 0), Point(0, 1), Point(-1, 0), Point(0,-1) };
-constexpr Point3D flatDirections[] = { Point3D(1, 0, 0), Point3D(0, 1, 0), Point3D(-1, 0, 0), Point3D(0, -1, 0) };
+constexpr std::array<Point,4> directions = { Point(1, 0), Point(0, 1), Point(-1, 0), Point(0,-1) };
+constexpr std::array<Point3D,4> flatDirections = { Point3D(1, 0, 0), Point3D(0, 1, 0), Point3D(-1, 0, 0), Point3D(0, -1, 0) };
+constexpr std::array<char, 6> coords3D = { 'N', 'E', 'S', 'W', 'U', 'D' };
+constexpr std::array<Point3D, 6> directions3D = { Point3D(1, 0, 0), Point3D(0, 1, 0), Point3D(-1, 0, 0), Point3D(0, -1, 0), Point3D(0, 0, 1), Point3D(0, 0, -1) };
 
 template<typename T>
 constexpr Coord<T> ReverseDirection(const Coord<T>& p)
 {
 	return Coord<T>(-p.x, -p.y);
+}
+
+template<typename T>
+constexpr Coord3D<T> ReverseDirection(const Coord3D<T>& p)
+{
+	return Coord3D<T>(-p.x, -p.y, -p.z);
 }
 
 template <typename T>
@@ -270,31 +278,39 @@ struct AStarInfo
 	Cost_t cost;
 };
 
-template <typename NodeInfo, typename Cost_t, typename Pred = std::less<AStarInfo<NodeInfo, Cost_t>>>
+enum class EvaluationPolicy
+{
+	OnPush,
+	OnPop,
+};
+template <typename NodeInfo, typename Cost_t, EvaluationPolicy policy = EvaluationPolicy::OnPush, typename Pred = std::less<AStarInfo<NodeInfo, Cost_t>>>
 class AStar
 {
 public:
 	using ASI = AStarInfo<NodeInfo, Cost_t>;
 	using Estimator = std::function<Cost_t(NodeInfo)>;
 
+	AStar() = default;
 	AStar(const Estimator& e) : estimator(e) {}
-	AStar(std::vector<ASI>&& data, const Estimator& e) : heap(std::move(data)), estimator(e), predicate()
+	AStar(std::vector<ASI>&& data, const Estimator& e) : heap(std::move(data)), estimator(e)
 	{
 		std::make_heap(heap.begin(), heap.end(), predicate);
-		for (const ASI& asi : heap)
-			repeatGuard.insert(asi);
+		if constexpr (policy == EvaluationPolicy::OnPush)
+			for (const ASI& asi : heap)
+				repeatGuard.insert(asi);
 	}
 
-	inline const ASI& PeakFront() const { return heap.front(); }
-	inline ASI PopFront() { return PopHeap(heap, predicate); }
-	inline void Push(const ASI& asi) { PushHeap(heap, asi, predicate); repeatGuard.insert(asi.info); }
+	inline const ASI& PeakFront() const noexcept { return heap.front(); }
+	inline void EraseFront() { std::pop_heap(heap.begin(), heap.end(), predicate); heap.pop_back(); }
+	inline ASI PopFront() { if constexpr (policy == EvaluationPolicy::OnPop) repeatGuard.insert(heap.front().info); return PopHeap(heap, predicate); }
+	inline void Push(const ASI& asi) { PushHeap(heap, asi, predicate); if constexpr (policy == EvaluationPolicy::OnPush) repeatGuard.insert(asi.info); }
 	template<typename... Args>
-	inline void Emplace(Args&& ... args) { heap.emplace_back(args...); repeatGuard.insert(heap.back().info); std::push_heap(heap.begin(), heap.end(), predicate); }
-	inline void EstimatedEmplace(const NodeInfo& ni, Cost_t cost) { heap.emplace_back(ni, cost, cost + estimator(ni)); repeatGuard.insert(heap.back().info); std::push_heap(heap.begin(), heap.end(), predicate); }
+	inline void Emplace(Args&& ... args) { heap.emplace_back(args...); if constexpr (policy == EvaluationPolicy::OnPush) repeatGuard.insert(heap.back().info); std::push_heap(heap.begin(), heap.end(), predicate); }
+	inline void EstimatedEmplace(const NodeInfo& ni, Cost_t cost) { EmplaceHeap(heap, predicate, ni, cost, cost + estimator(ni)); if constexpr (policy == EvaluationPolicy::OnPush) repeatGuard.insert(ni); }
 
 	inline bool HasEvaluatedNode(const NodeInfo& ni) const { return repeatGuard.find(ni) != repeatGuard.cend(); }
-	inline bool Empty() const { return heap.empty(); }
-	inline void Reset() { heap.clear(); repeatGuard.clear(); }
+	inline bool Empty() const noexcept { return heap.empty(); }
+	inline void Reset() noexcept { heap.clear(); repeatGuard.clear(); }
 
 private:
 	std::vector<ASI> heap;

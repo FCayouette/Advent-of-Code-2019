@@ -2,12 +2,11 @@
 #include <fstream>
 #include <string>
 #include "TemplatedUtilities.h"
-#include <vector>
 #include <map>
-#include <set>
-#include <array>
+#include <tuple>
 
 constexpr bool IsPortal(char c) { return c >= 'A' && c <= 'Z'; }
+constexpr std::array<char, 2> entrancePortal{ 'A', 'A' }, exitPortal{ 'Z','Z' };
 
 struct Portal
 {
@@ -17,6 +16,29 @@ struct Portal
     std::array<char, 2> name;
     bool operator<(const Portal& p) const { return name < p.name; }
 };
+
+enum class Position : char
+{
+    inner,
+    outer
+};
+constexpr Position StepThrough(Position p) { return p == Position::inner ? Position::outer : Position::inner; }
+
+using PortalInfo = std::tuple<std::array<char, 2>, Position>;
+using PortalAndDistance = std::tuple<std::array<char, 2>, Position, int>;
+struct Connections
+{
+    constexpr Connections(char c1 = '.', char c2 = '.', Position p = Position::inner) : portal({ c1, c2 }, p) {}
+    constexpr Connections(const std::array<char, 2>& a, bool inner) : portal(a, inner ? Position::inner : Position::outer) {}
+    constexpr Connections(const PortalInfo& pi) : portal(pi) {}
+    PortalInfo portal;
+    std::vector<PortalAndDistance> connectsTo;
+
+    constexpr bool operator<(const Connections& c) const { return portal < c.portal; }
+};
+
+using Portals = std::set<Portal>;
+using PointsToPortal = std::map<Point, std::array<char, 2>>;
 
 int main(int argc, char*argv[])
 {
@@ -29,7 +51,7 @@ int main(int argc, char*argv[])
     std::fstream in(argv[1], std::ios::in);
     if (!in)
         return -1;
-
+    
     std::vector<std::string> maze;
     std::string line;
     while (std::getline(in, line))
@@ -38,107 +60,177 @@ int main(int argc, char*argv[])
     in.close();
 
     Point pMax(maze[0].size(), maze.size());
-    std::set<Portal> portals;
-    std::map<Point, std::array<char, 2>> pointsToPortal;
+    Portals portals;
+    PointsToPortal pointsToPortal;
 
-    // Scan 
-    for (int i = 0; i < pMax.y; ++i)
-        for (int j = 0; j < pMax.x; ++j)
-        {
-            char c = maze[i][j];
-            if (IsPortal(c))
+    // Scan for portals
+    {
+        auto PortalInsert = [&pointsToPortal, &portals](Portal& portal, Point pos) {
+            pointsToPortal[pos] = portal.name;
+            if (auto iter = portals.find(portal);
+                iter == portals.cend())
             {
-                if (j + 1 < pMax.x && IsPortal(maze[i][j + 1]))
-                {
-                    Portal portal(c, maze[i][j + 1]);
-                    Point pos;
-                    if (j + 2 < pMax.x && maze[i][j + 2] == '.')
-                        pos = Point(j + 2, i);
-                    else
-                        pos = Point(j - 1, i);
-
-                    pointsToPortal[pos] = portal.name;
-                    if (auto iter = portals.find(portal);
-                        iter == portals.cend())
-                    {
-                        portal.A = pos;
-                        portals.insert(portal);
-                    }
-                    else
-                        iter->B = pos;
-                    ++j;
-                }
-                else if (i + 1 < pMax.y && IsPortal(maze[i + 1][j]))
-                {
-                    Portal portal(c, maze[i+1][j]);
-                    Point pos;
-                    if (i + 2 < pMax.y && maze[i + 2][j] == '.')
-                        pos = Point(j, i + 2);
-                    else
-                        pos = Point(j, i-1);
-                    
-                    pointsToPortal[pos] = portal.name;
-                    if (auto iter = portals.find(portal);
-                        iter == portals.cend())
-                    {
-                        portal.A = pos;
-                        portals.insert(portal);
-                    }
-                    else
-                        iter->B = pos;
-                }
+                portal.A = pos;
+                portals.insert(portal);
             }
-        }
+            else
+                iter->B = pos;
+        };
 
+        for (int i = 0; i < pMax.y; ++i)
+            for (int j = 0; j < pMax.x; ++j)
+                if (char c = maze[i][j];
+                    IsPortal(c))
+                {
+                    if (j + 1 < pMax.x && IsPortal(maze[i][j + 1]))
+                    {
+                        Portal portal(c, maze[i][j + 1]);
+                        Point pos = (j + 2 < pMax.x && maze[i][j + 2] == '.') ? Point(j + 2, i) : Point(j - 1, i);
+
+                        PortalInsert(portal, pos);
+
+                        ++j; // Skip next char as it is part of the portal descriptor
+                    }
+                    else if (i + 1 < pMax.y && IsPortal(maze[i + 1][j]))
+                    {
+                        Portal portal(c, maze[i + 1][j]);
+                        Point pos = (i + 2 < pMax.y && maze[i + 2][j] == '.') ? Point(j, i + 2) : Point(j, i - 1);
+
+                        PortalInsert(portal, pos);
+                    }
+                }
+    }
     Point target = portals.crbegin()->A;
-    Point start = portals.cbegin()->A;
     portals.cbegin()->B = portals.cbegin()->A;
     portals.crbegin()->B = portals.crbegin()->A;
+    // Make sure Portals have A in the outside and B in the inside
+    for (auto portalIter = portals.cbegin(); portalIter != portals.cend(); ++portalIter)
+    {
+        Point b = portalIter->B;
+        if (b.y == 2 || b.x == 2 || b.y >= static_cast<int>(maze.size() - 4) || b.x >= static_cast<int>(maze[0].size() - 4))
+            std::swap(portalIter->A, portalIter->B);
+    }
+
     Bounds bounds;
     bounds += pMax + Point(-1, -1);
 
-    AStar<Point, int> aStar([target](const Point& p) { return ManhattanDistance(p, target); });
-    aStar.EstimatedEmplace(start, 0);
-
-    do
+    // Generate connections information
+    std::set<Connections> connections;
     {
-        AStar<Point, int>::ASI currentInfo = aStar.PopFront();
-        const int nextCost = currentInfo.cost + 1;
-        for (int i = 0; i < 4; ++i)
+        auto FindConnections = [&bounds = std::as_const(bounds), &maze = std::as_const(maze), &pointsToPortal = std::as_const(pointsToPortal),
+                                &portals = std::as_const(portals), &connections](Connections& current, const Point& point)
         {
-            Point np = currentInfo.info + directions[i];
-            if (np == target)
+            // Fill from position, find all reachable portals through fill algorithm
+            std::set<Point> processed = { point }, previousIteration = { point };
+            int iterations = 0;
+            std::vector<Connections> accessible;
+            do
             {
-                std::cout << "Part 1: " << nextCost << std::endl;
-                goto AStarCompleted; // We are done, get out
-            }
-            if (bounds.Inside(np) && !aStar.HasEvaluatedNode(np) && maze[np.y][np.x] == '.')
-                aStar.EstimatedEmplace(np, nextCost);
-        }
-        if (auto portal = pointsToPortal.find(currentInfo.info);
-            portal != pointsToPortal.cend())
-        {
-            auto iter = portals.find(portal->second);
-            if (iter->A == currentInfo.info)
-            {
-                if (!aStar.HasEvaluatedNode(iter->B))
-                    aStar.EstimatedEmplace(iter->B, nextCost);
-            }
-            else if (!aStar.HasEvaluatedNode(iter->A))
-                aStar.EstimatedEmplace(iter->A, nextCost);
-        }
-    } while (!aStar.Empty());
-AStarCompleted:
+                ++iterations;
+                std::set<Point> currentIteration;
+                for (const Point& p : previousIteration)
+                {
+                    for (int i = 0; i < 4; ++i)
+                    {
+                        Point np = p + directions[i];
+                        if (auto iter = processed.find(np);
+                            iter == processed.cend() && bounds.Inside(np) && maze[np.y][np.x] == '.')
+                        {
+                            currentIteration.insert(np);
+                            processed.insert(np);
+                        }
+                    }
+                    if (auto iter = pointsToPortal.find(p);
+                        p != point && iter != pointsToPortal.cend())
+                    {
+                        Portal reachedPortal = *portals.find(iter->second);
 
-    // Going 3D for part 2 solution
-    // Make sure Portals have A in the outside and B in the inside
-    for (auto iter = portals.cbegin(); iter != portals.cend(); ++iter)
-    {
-        Point b = iter->B;
-        if (b.y == 2 || b.x == 2 || b.y >= maze.size() - 4 || b.x >= maze[0].size() - 4)
-            std::swap(iter->A, iter->B);
+                        current.connectsTo.emplace_back(reachedPortal.name, ((reachedPortal.A == p || reachedPortal.name == exitPortal) ? Position::outer : Position::inner), iterations);
+                        accessible.emplace_back(reachedPortal.name, reachedPortal.B == p && reachedPortal.name != exitPortal);
+                        accessible.back().connectsTo.emplace_back(std::get<0>(current.portal), std::get<1>(current.portal), iterations);
+                    }
+                }
+                std::swap(previousIteration, currentIteration);
+            } while (!previousIteration.empty());
+
+            // Then for each reachable portal use an A* to find distance to each other reachable portal (N^2 - N)/2 times
+            for (size_t i = 0; i < accessible.size() - 1; ++i)
+            {
+                const Portal& startPortal = *portals.find(std::get<0>(accessible[i].portal));
+                Point start = (std::get<1>(accessible[i].portal) == Position::outer ? startPortal.A : startPortal.B);
+                for (size_t j = i + 1; j < accessible.size(); ++j)
+                {
+                    Portal targetPortal = *portals.find(std::get<0>(accessible[j].portal));
+                    Point target = (std::get<1>(accessible[j].portal) == Position::outer ? targetPortal.A : targetPortal.B);
+
+                    AStar<Point, int> aStar([target](const Point& p) { return ManhattanDistance(p, target); });
+                    aStar.EstimatedEmplace(start, 1); // Factor in the cost of taking a portal
+                    int cost = 0;
+                    while (!aStar.Empty())
+                    {
+                        AStar<Point, int>::ASI currentInfo = aStar.PopFront();
+                        const int nextCost = currentInfo.cost + 1;
+                        for (const Point& p : directions)
+                        {
+                            Point np = currentInfo.info + p;
+                            if (np == target)
+                            {
+                                cost = nextCost;
+                                goto AStarCompleted; // We are done, get out
+                            }
+                            if (bounds.Inside(np) && !aStar.HasEvaluatedNode(np) && maze[np.y][np.x] == '.')
+                                aStar.EstimatedEmplace(np, nextCost);
+                        }
+                    }
+                AStarCompleted:
+                    accessible[i].connectsTo.emplace_back(std::get<0>(accessible[j].portal), std::get<1>(accessible[j].portal), cost);
+                    accessible[j].connectsTo.emplace_back(std::get<0>(accessible[i].portal), std::get<1>(accessible[i].portal), cost);
+                }
+            }
+
+            // Finally, set all reachable portals as processed
+            connections.insert(current);
+            connections.insert(accessible.cbegin(), accessible.cend());
+        };
+
+        for (const auto& portal : portals)
+        {
+            if (auto current = Connections(portal.name, false); // Check if we have already processed outer portal
+                connections.find(current) == connections.cend())
+                FindConnections(current, portal.A);
+
+            if (auto current = Connections(portal.name, true); // Check if we have already processed inner portal (avoid entrance and exit)
+                portal.name != entrancePortal && portal.name != exitPortal && connections.find(current) == connections.cend())
+                FindConnections(current, portal.B);
+        }
     }
 
+    AStar<PortalInfo, int, EvaluationPolicy::OnPop> aStar([target, &portals = std::as_const(portals)](const PortalInfo& pi) {
+        const Portal& portal = *portals.find(std::get<0>(pi)); // Fetch position from PortalInfo
+        return ManhattanDistance((std::get<1>(pi) == Position::outer ? portal.A : portal.B), target);
+        });
+    aStar.Emplace(std::make_tuple(entrancePortal, Position::inner), 0, 0);
+    aStar.PopFront(); // Dirty trick to avoid processing AA as inner
+    aStar.EstimatedEmplace(connections.cbegin()->portal, -1);
+
+    while (!aStar.Empty())
+    {
+        if (aStar.HasEvaluatedNode(aStar.PeakFront().info))
+        {
+            aStar.EraseFront();
+            continue;
+        }
+        AStarInfo<PortalInfo, int> current = aStar.PopFront();
+        if (std::get<0>(current.info) == exitPortal)
+        {
+            std::cout << "Part 1: " << current.cost << std::endl;
+            break;
+        }
+        for (const PortalAndDistance& pd : connections.find(current.info)->connectsTo)
+            aStar.EstimatedEmplace(std::make_tuple(std::get<0>(pd), StepThrough(std::get<1>(pd))), current.cost + std::get<2>(pd));
+    }
+
+    // Going 3D for part 2 solution
     // Compute minimal cost to change layer
     int minCost = bounds.maxX - bounds.minX + bounds.maxY - bounds.minY;
     for (auto iter = portals.cbegin(); iter != portals.cend(); ++iter)
@@ -147,50 +239,42 @@ AStarCompleted:
         if (cost < minCost && cost != 0)
             minCost = cost;
     }
-    Point3D target3d(target.x, target.y, 0);
-    Point3D start3d(start.x, start.y, 0);
-    constexpr std::array<char, 2> entrance{ 'A', 'A' }, exit{ 'Z','Z' };
 
-    AStar<Point3D, int> aStar3d([minCost, target](const Point3D& p) { return ManhattanDistance(target, Point(p.x, p.y)) + minCost * p.z; });
-    aStar3d.EstimatedEmplace(start3d, 0);
+    using PortalInfo3D = std::tuple<std::array<char, 2>, Position, int>;
+    AStar<PortalInfo3D, int, EvaluationPolicy::OnPop> aStar3D([minCost, target, &portals = std::as_const(portals)](const PortalInfo3D& pi) 
+        {
+            const Portal& portal = *portals.find(std::get<0>(pi));
+            return ManhattanDistance(target, (std::get<1>(pi) == Position::outer ? portal.A : portal.B)) + minCost * std::get<2>(pi);
+        });
 
-    do
+    aStar3D.Emplace(std::make_tuple(entrancePortal, Position::inner, 0), 0, 0);
+    aStar3D.PopFront(); // dirty trick to avoid evaluating AA inner
+    aStar3D.EstimatedEmplace(std::make_tuple(entrancePortal, Position::outer, 0), -1);
+
+    while (!aStar3D.Empty())
     {
-        AStar<Point3D, int>::ASI currentInfo = aStar3d.PopFront();
-        const int nextCost = currentInfo.cost + 1;
-        for (int i = 0; i < 4; ++i)
+        if (aStar3D.HasEvaluatedNode(aStar3D.PeakFront().info))
         {
-            Point3D np = currentInfo.info + flatDirections[i];
-            if (np == target3d)
-            {
-                std::cout << "Part 2: " << nextCost << std::endl;
-                goto AStar3DCompleted; // We are done, get out
-            }
-            if (bounds.Inside(np.Flatten()) && !aStar3d.HasEvaluatedNode(np) && maze[np.y][np.x] == '.')
-                aStar3d.EstimatedEmplace(np, nextCost);            
+            aStar3D.EraseFront();
+            continue;
         }
-        if (auto portal = pointsToPortal.find(currentInfo.info.Flatten());
-            portal != pointsToPortal.cend())
+        AStarInfo<PortalInfo3D, int> current = aStar3D.PopFront();
+        if (std::get<0>(current.info) == exitPortal)
         {
-            if (currentInfo.info.z != 0 && (portal->second == entrance || portal->second == exit))
-                continue; // Not at the correct level for entrance and exit
-            auto iter = portals.find(portal->second);
-            if (iter->A == currentInfo.info.Flatten())
-            {
-                if (currentInfo.info.z == 0) continue;
-                Point3D inner(iter->B.x, iter->B.y, currentInfo.info.z - 1);
-                if (!aStar3d.HasEvaluatedNode(inner))
-                    aStar3d.EstimatedEmplace(inner, nextCost);
-            }
-            else
-            {
-                Point3D outer(iter->A.x, iter->A.y, currentInfo.info.z + 1);
-                if (!aStar3d.HasEvaluatedNode(outer))
-                    aStar3d.EstimatedEmplace(outer, nextCost);
-            }
+            std::cout << "Part 2: " << current.cost << std::endl;
+            break;
         }
-    } while (!aStar3d.Empty());
-
-AStar3DCompleted:
+        const int level = std::get<2>(current.info);
+        for (const PortalAndDistance& pd : connections.find(std::make_tuple(std::get<0>(current.info), std::get<1>(current.info)))->connectsTo)
+        {
+            Position pos = std::get<1>(pd);
+            std::array<char,2> name = std::get<0>(pd);
+            if (level == 0 && pos == Position::outer && name != exitPortal)
+                continue;
+            if (level != 0 && (name == entrancePortal || name == exitPortal))
+                continue;
+            aStar3D.EstimatedEmplace(std::make_tuple(std::get<0>(pd), StepThrough(std::get<1>(pd)), level + (pos == Position::inner ? 1 : -1)), current.cost + std::get<2>(pd));
+        }
+    }
     return 0;
 }
